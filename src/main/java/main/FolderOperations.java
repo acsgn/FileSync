@@ -10,10 +10,16 @@ import java.util.AbstractMap.SimpleEntry;
 import java.util.ArrayList;
 import java.util.Hashtable;
 
+import net.jpountz.xxhash.StreamingXXHash32;
+import net.jpountz.xxhash.XXHashFactory;
+
 public class FolderOperations {
 	private File folder;
 	private File usage;
 	private Hashtable<String, SimpleEntry<Long, String>> calculatedHashes;
+	private static final int seed = 9896;
+	private static final XXHashFactory factory = XXHashFactory.fastestInstance();
+	private static final StreamingXXHash32 hashing = factory.newStreamingHash32(seed);
 
 	/**
 	 * Creates a folderOperations object to perform file operations such as getting
@@ -44,7 +50,7 @@ public class FolderOperations {
 		ArrayList<String> list = new ArrayList<String>();
 		for (File tmp : folder.listFiles()) {
 			if (tmp.getName().compareTo(usage.getName()) != 0)
-				list.add(tmp.getName() + ":" + tmp.length() + ":" + calcSHA1(tmp));
+				list.add(tmp.getName() + ":" + tmp.length() + ":" + calcXXHash(tmp));
 		}
 		return list;
 	}
@@ -88,7 +94,7 @@ public class FolderOperations {
 	 * @return Result of hash checking
 	 */
 	public boolean hashCheck(String fileName, String hash) {
-		return hash.equals(calcSHA1(new File(getFilePath(fileName))));
+		return hash.equals(calcXXHash(new File(getFilePath(fileName))));
 	}
 
 	/**
@@ -121,6 +127,35 @@ public class FolderOperations {
 			}
 		} catch (NoSuchAlgorithmException e) {
 			System.err.println("No such algorithm");
+		} catch (FileNotFoundException e) {
+			System.err.println("File not found wih name " + file.getName());
+		} catch (IOException e) {
+			System.err.println("I/O Exception");
+		}
+		SimpleEntry<Long, String> pair = new SimpleEntry<Long, String>(file.lastModified(), result);
+		calculatedHashes.put(file.getName(), pair);
+		return result;
+	}
+
+	private String calcXXHash(File file) {
+		String result = "";
+		if (calculatedHashes.containsKey(file.getName())) {
+			SimpleEntry<Long, String> pair = calculatedHashes.get(file.getName());
+			if (pair.getKey() == file.lastModified())
+				return pair.getValue();
+		}
+		try {
+			FileInputStream fis = new FileInputStream(file);
+			byte[] buffer = new byte[16384];
+			int bytesRead;
+			do {
+				bytesRead = fis.read(buffer);
+				if (bytesRead > 0)
+					hashing.update(buffer, 0, bytesRead);
+			} while (bytesRead != -1);
+			fis.close();
+			result = Integer.toHexString(hashing.getValue());
+			hashing.reset();
 		} catch (FileNotFoundException e) {
 			System.err.println("File not found wih name " + file.getName());
 		} catch (IOException e) {
