@@ -1,4 +1,4 @@
-package main;
+package com.acsgn.filesync.main;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -155,6 +155,7 @@ public class FolderOperations {
 			} while (bytesRead != -1);
 			fis.close();
 			result = Integer.toHexString(hashing.getValue());
+			System.out.println(result);
 			hashing.reset();
 		} catch (FileNotFoundException e) {
 			System.err.println("File not found wih name " + file.getName());
