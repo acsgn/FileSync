@@ -1,4 +1,4 @@
-package com.acsgn.filesync.socket;
+package socket;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -10,7 +10,7 @@ import java.net.Socket;
 
 public class FileSocket {
 
-	private static final int BUFFER_SIZE = 32768;
+	private static final int BUFFER_SIZE = 16384;
 	private InputStream is;
 	private OutputStream os;
 

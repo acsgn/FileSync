@@ -1,4 +1,4 @@
-package com.acsgn.filesync.socket;
+package socket;
 
 import java.io.IOException;
 import java.net.ServerSocket;

@@ -1,11 +1,11 @@
-package com.acsgn.filesync.main;
+package main;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 
-import com.acsgn.filesync.socket.CommandSocket;
-import com.acsgn.filesync.socket.Connection;
-import com.acsgn.filesync.socket.FileSocket;
+import socket.CommandSocket;
+import socket.Connection;
+import socket.FileSocket;
 
 public class Sync implements Runnable {
 	private FolderOperations fo;
@@ -37,6 +37,7 @@ public class Sync implements Runnable {
 	 * Starts and follows the synchronization protocol for DriveCloud
 	 */
 	public void run() {
+		long time = System.nanoTime();
 		System.out.println("Sync started");
 		connection.connect();
 		comSoc = connection.createCommandSocket();
@@ -92,6 +93,7 @@ public class Sync implements Runnable {
 			close();
 		System.out.println("Sync completed");
 		connection.close();
+		System.out.println(System.nanoTime()-time);
 	}
 
 	/**

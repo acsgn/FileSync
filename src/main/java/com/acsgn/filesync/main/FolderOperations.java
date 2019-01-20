@@ -1,11 +1,9 @@
-package com.acsgn.filesync.main;
+package main;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.AbstractMap.SimpleEntry;
 import java.util.ArrayList;
 import java.util.Hashtable;
@@ -16,7 +14,7 @@ import net.jpountz.xxhash.XXHashFactory;
 public class FolderOperations {
 	private File folder;
 	private File usage;
-	private Hashtable<String, SimpleEntry<Long, String>> calculatedHashes;
+	private Hashtable<String, SimpleEntry<Long, Integer>> calculatedHashes;
 	private static final int seed = 9896;
 	private static final XXHashFactory factory = XXHashFactory.fastestInstance();
 	private static final StreamingXXHash32 hashing = factory.newStreamingHash32(seed);
@@ -38,7 +36,7 @@ public class FolderOperations {
 			System.err.println("Cannot mark folder as in use");
 		}
 		usage.deleteOnExit();
-		calculatedHashes = new Hashtable<String, SimpleEntry<Long, String>>();
+		calculatedHashes = new Hashtable<String, SimpleEntry<Long, Integer>>();
 	}
 
 	/**
@@ -94,56 +92,16 @@ public class FolderOperations {
 	 * @return Result of hash checking
 	 */
 	public boolean hashCheck(String fileName, String hash) {
-		return hash.equals(calcXXHash(new File(getFilePath(fileName))));
+		return Integer.parseInt(hash) == calcXXHash(new File(getFilePath(fileName)));
 	}
 
-	/**
-	 * SHA1 hash calculator algorithm to get SHA1 value of the file
-	 * 
-	 * @param file File that SHA1 value will be calculated
-	 * @return SHA1 value as String object
-	 */
-	private String calcSHA1(File file) {
-		String result = "";
+	private int calcXXHash(File file) {
 		if (calculatedHashes.containsKey(file.getName())) {
-			SimpleEntry<Long, String> pair = calculatedHashes.get(file.getName());
+			SimpleEntry<Long, Integer> pair = calculatedHashes.get(file.getName());
 			if (pair.getKey() == file.lastModified())
 				return pair.getValue();
 		}
-		try {
-			FileInputStream fis = new FileInputStream(file);
-			byte[] buffer = new byte[16384];
-			MessageDigest md = MessageDigest.getInstance("SHA1");
-			int bytesRead;
-			do {
-				bytesRead = fis.read(buffer);
-				if (bytesRead > 0)
-					md.update(buffer, 0, bytesRead);
-			} while (bytesRead != -1);
-			fis.close();
-			byte[] out = md.digest();
-			for (int i = 0; i < out.length; i++) {
-				result += Integer.toString((out[i] & 0xff) + 0x100, 16).substring(1);
-			}
-		} catch (NoSuchAlgorithmException e) {
-			System.err.println("No such algorithm");
-		} catch (FileNotFoundException e) {
-			System.err.println("File not found wih name " + file.getName());
-		} catch (IOException e) {
-			System.err.println("I/O Exception");
-		}
-		SimpleEntry<Long, String> pair = new SimpleEntry<Long, String>(file.lastModified(), result);
-		calculatedHashes.put(file.getName(), pair);
-		return result;
-	}
-
-	private String calcXXHash(File file) {
-		String result = "";
-		if (calculatedHashes.containsKey(file.getName())) {
-			SimpleEntry<Long, String> pair = calculatedHashes.get(file.getName());
-			if (pair.getKey() == file.lastModified())
-				return pair.getValue();
-		}
+		int result = 0;
 		try {
 			FileInputStream fis = new FileInputStream(file);
 			byte[] buffer = new byte[16384];
@@ -154,16 +112,15 @@ public class FolderOperations {
 					hashing.update(buffer, 0, bytesRead);
 			} while (bytesRead != -1);
 			fis.close();
-			result = Integer.toHexString(hashing.getValue());
-			System.out.println(result);
+			result = hashing.getValue();
 			hashing.reset();
+			SimpleEntry<Long, Integer> pair = new SimpleEntry<Long, Integer>(file.lastModified(), result);
+			calculatedHashes.put(file.getName(), pair);
 		} catch (FileNotFoundException e) {
 			System.err.println("File not found wih name " + file.getName());
 		} catch (IOException e) {
 			System.err.println("I/O Exception");
 		}
-		SimpleEntry<Long, String> pair = new SimpleEntry<Long, String>(file.lastModified(), result);
-		calculatedHashes.put(file.getName(), pair);
 		return result;
 	}
 

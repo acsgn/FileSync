@@ -1,13 +1,14 @@
-package com.acsgn.filesync.main;
+package main;
 
 import java.io.File;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import com.acsgn.filesync.socket.Client;
-import com.acsgn.filesync.socket.Connection;
-import com.acsgn.filesync.socket.Server;
+import gui.GUI;
+import socket.Client;
+import socket.Connection;
+import socket.Server;
 
 public class Main {
 
@@ -22,6 +23,8 @@ public class Main {
 	 * @param args Arguments for system
 	 */
 	public static void main(String[] args) {
+		
+		new GUI();
 
 		int defaultTime = 30;
 
