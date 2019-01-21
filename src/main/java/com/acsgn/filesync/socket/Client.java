@@ -21,7 +21,6 @@ public class Client extends Connection {
 	public void connect() {
 		try {
 			Socket socket = new Socket(serverAddress, port);
-			System.out.println(socket.toString());
 			super.setSocket(socket);
 		} catch (IOException e) {
 			System.err.println("No server has been found on " + serverAddress);

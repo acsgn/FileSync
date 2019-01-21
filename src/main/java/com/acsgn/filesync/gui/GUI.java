@@ -13,6 +13,10 @@ import javax.swing.JTextArea;
 import javax.swing.JFileChooser;
 import javax.swing.SwingConstants;
 import javax.swing.filechooser.FileFilter;
+import javax.swing.filechooser.FileSystemView;
+
+import main.Controller;
+import main.Listener;
 
 import java.awt.Font;
 import java.awt.Toolkit;
@@ -20,7 +24,7 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.File;
 
-public class GUI extends JFrame {
+public class GUI extends JFrame implements Listener {
 	private static final long serialVersionUID = 1L;
 
 	private int width = Toolkit.getDefaultToolkit().getScreenSize().width / 3;
@@ -31,6 +35,7 @@ public class GUI extends JFrame {
 	private JTextArea informationText;
 
 	private String folder;
+	private boolean start = true;
 
 	public GUI() {
 		setTitle("FileSync");
@@ -123,14 +128,14 @@ public class GUI extends JFrame {
 		controlPanel.add(IPPanel);
 
 		JButton folderButton = new JButton("Choose Folder");
-		folderButton.setBounds(panelXMargin + 7 * panelWidth / 12, 0, 5*panelWidth / 12 - 2 * panelXMargin,
+		folderButton.setBounds(panelXMargin + 7 * panelWidth / 12, 0, 5 * panelWidth / 12 - 2 * panelXMargin,
 				controlPanelHeight / 2 - panelYMargin);
 		folderButton.setFont(font);
 		controlPanel.add(folderButton);
 
 		JButton startStopButton = new JButton("Start");
 		startStopButton.setBounds(panelXMargin + 7 * panelWidth / 12, controlPanelHeight / 2,
-				5*panelWidth / 12 - 2 * panelXMargin, controlPanelHeight / 2 - panelYMargin);
+				5 * panelWidth / 12 - 2 * panelXMargin, controlPanelHeight / 2 - panelYMargin);
 		startStopButton.setFont(font);
 		controlPanel.add(startStopButton);
 
@@ -154,7 +159,7 @@ public class GUI extends JFrame {
 			}
 		});
 
-		JFileChooser chooser = new JFileChooser();
+		JFileChooser chooser = new JFileChooser(FileSystemView.getFileSystemView().getHomeDirectory());
 		chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
 		chooser.setAcceptAllFileFilterUsed(false);
 		chooser.setFileFilter(new FileFilter() {
@@ -178,22 +183,41 @@ public class GUI extends JFrame {
 		startStopButton.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
-				String IP = IPTextField.getText();
-				if (folder == null) {
-					JOptionPane.showMessageDialog(null, "Please select a folder to sync!", "Error",
-							JOptionPane.ERROR_MESSAGE);
-					return;
-				}
-				if (followerButton.isSelected()) {
-					if (isLegitIP(IP))
-						;
-					else {
-						JOptionPane.showMessageDialog(null, "Please enter a valid IP Address (e.g. 192.168.1.2) !",
-								"Error", JOptionPane.ERROR_MESSAGE);
+				if (start) {
+					if (folder == null) {
+						JOptionPane.showMessageDialog(null, "Please select a folder to sync !", "Error",
+								JOptionPane.ERROR_MESSAGE);
 						return;
 					}
+					if (followerButton.isSelected()) {
+						String IP = IPTextField.getText();
+						if (!isLegitIP(IP)) {
+							JOptionPane.showMessageDialog(null, "Please enter a valid IP Address (e.g. 192.168.1.2) !",
+									"Error", JOptionPane.ERROR_MESSAGE);
+							return;
+						}
+						Controller.getInstance().dispatchMessage("FOLDER/" + folder);
+						Controller.getInstance().dispatchMessage("FOLLOWER/" + IP);
+					} else {
+						String timeText = TimeTextField.getText();
+						int time;
+						try {
+							time = Integer.parseInt(timeText);
+						} catch (NumberFormatException numberException) {
+							JOptionPane.showMessageDialog(null, "Please enter a valid time interval for synchronization !",
+									"Error", JOptionPane.ERROR_MESSAGE);
+							return;
+						}
+						Controller.getInstance().dispatchMessage("FOLDER/" + folder);
+						Controller.getInstance().dispatchMessage("MASTER/" + time);
+					}
+					startStopButton.setText("Stop");
+					start = false;
+				} else {
+					startStopButton.setText("Start");
+					Controller.getInstance().dispatchMessage("STOP");
+					start = true;
 				}
-				startStopButton.setText("Stop");
 			}
 
 			private boolean isLegitIP(String IP) {
@@ -214,6 +238,17 @@ public class GUI extends JFrame {
 				return true;
 			}
 		});
+
+	}
+
+	@Override
+	public void onEvent(String message) {
+		String[] parsed = message.split("/");
+		switch (parsed[0]) {
+		case "UPDATE":
+			informationText.insert(parsed[1], 0);
+			break;
+		}
 
 	}
 

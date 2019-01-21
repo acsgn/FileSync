@@ -8,12 +8,13 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 
+import main.FolderOperations;
+
 public class FileSocket {
 
 	private static final int BUFFER_SIZE = 16384;
 	private InputStream is;
 	private OutputStream os;
-
 
 	public FileSocket(Socket s) {
 		try {
@@ -54,9 +55,10 @@ public class FileSocket {
 	 * @param path     Path of the file that will be received
 	 * @param fileSize Size of the file that will be received
 	 */
-	public void receiveFile(String path, long fileSize) {
+	public void receiveFile(String path, long fileSize, FolderOperations fo) {
 		try {
 			File file = new File(path);
+			file.getParentFile().mkdirs();
 			byte[] buffer = new byte[BUFFER_SIZE];
 			FileOutputStream fos = new FileOutputStream(file);
 			int bytesRead;
@@ -64,9 +66,11 @@ public class FileSocket {
 			while (current < fileSize) {
 				bytesRead = is.read(buffer);
 				fos.write(buffer, 0, bytesRead);
+				fo.receiveCalcXXHash(buffer, 0, bytesRead);
 				current += bytesRead;
 			}
 			fos.close();
+			fo.finishreceiveCalcXXHash(path);
 			System.out.println(file.getName() + " downloaded (" + current + " bytes read)");
 		} catch (IOException e) {
 			System.err.println("Couldn't receive file");

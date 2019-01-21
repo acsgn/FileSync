@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+
 import java.util.AbstractMap.SimpleEntry;
 import java.util.ArrayList;
 import java.util.Hashtable;
@@ -13,7 +14,6 @@ import net.jpountz.xxhash.XXHashFactory;
 
 public class FolderOperations {
 	private File folder;
-	private File usage;
 	private Hashtable<String, SimpleEntry<Long, Integer>> calculatedHashes;
 	private static final int seed = 9896;
 	private static final XXHashFactory factory = XXHashFactory.fastestInstance();
@@ -29,13 +29,6 @@ public class FolderOperations {
 	 */
 	public FolderOperations(String folderPath) {
 		folder = new File(folderPath);
-		usage = new File(folderPath + "\\INUSE");
-		try {
-			usage.createNewFile();
-		} catch (IOException e) {
-			System.err.println("Cannot mark folder as in use");
-		}
-		usage.deleteOnExit();
 		calculatedHashes = new Hashtable<String, SimpleEntry<Long, Integer>>();
 	}
 
@@ -45,10 +38,17 @@ public class FolderOperations {
 	 * @return ArrayList of files on the folder
 	 */
 	public ArrayList<String> fileList() {
+		return fileListHelper(folder);
+	}
+
+	private ArrayList<String> fileListHelper(File directory) {
 		ArrayList<String> list = new ArrayList<String>();
-		for (File tmp : folder.listFiles()) {
-			if (tmp.getName().compareTo(usage.getName()) != 0)
-				list.add(tmp.getName() + ":" + tmp.length() + ":" + calcXXHash(tmp));
+		for (File file : directory.listFiles()) {
+			if (file.isFile())
+				list.add(file.getName() + ":" + file.length() + ":" + calcXXHash(file));
+			else
+				for (String fileString : fileListHelper(file))
+					list.add(file.getName() + "\\" + fileString);
 		}
 		return list;
 	}
@@ -95,9 +95,21 @@ public class FolderOperations {
 		return Integer.parseInt(hash) == calcXXHash(new File(getFilePath(fileName)));
 	}
 
+	public void receiveCalcXXHash(byte[] buf, int off, int len) {
+		hashing.update(buf, off, len);
+	}
+
+	public void finishreceiveCalcXXHash(String path) {
+		int result = hashing.getValue();
+		hashing.reset();
+		File file = new File(path);
+		SimpleEntry<Long, Integer> pair = new SimpleEntry<Long, Integer>(file.lastModified(), result);
+		calculatedHashes.put(file.getAbsolutePath(), pair);
+	}
+
 	private int calcXXHash(File file) {
-		if (calculatedHashes.containsKey(file.getName())) {
-			SimpleEntry<Long, Integer> pair = calculatedHashes.get(file.getName());
+		if (calculatedHashes.containsKey(file.getAbsolutePath())) {
+			SimpleEntry<Long, Integer> pair = calculatedHashes.get(file.getAbsolutePath());
 			if (pair.getKey() == file.lastModified())
 				return pair.getValue();
 		}
@@ -115,7 +127,7 @@ public class FolderOperations {
 			result = hashing.getValue();
 			hashing.reset();
 			SimpleEntry<Long, Integer> pair = new SimpleEntry<Long, Integer>(file.lastModified(), result);
-			calculatedHashes.put(file.getName(), pair);
+			calculatedHashes.put(file.getAbsolutePath(), pair);
 		} catch (FileNotFoundException e) {
 			System.err.println("File not found wih name " + file.getName());
 		} catch (IOException e) {

@@ -7,30 +7,35 @@ import socket.CommandSocket;
 import socket.Connection;
 import socket.FileSocket;
 
-public class Sync implements Runnable {
+public class SyncProtocol implements Runnable {
+
 	private FolderOperations fo;
 	private Connection connection;
 	private CommandSocket comSoc;
 	private FileSocket fiSoc;
 	private boolean isMaster;
-	private HashMap<String, String> fileHashInfoMap = new HashMap<String, String>();
-	private HashMap<String, String> oldFileHashInfoMap = new HashMap<String, String>();
-	private ArrayList<String> deletedFiles = new ArrayList<String>();
-	private ArrayList<String> renamedFiles = new ArrayList<String>();
+
+	private HashMap<String, String> fileHashInfoMap;
+	private HashMap<String, String> oldFileHashInfoMap;
+	private ArrayList<String> deletedFiles;
+	private ArrayList<String> renamedFiles;
 
 	/**
 	 * Creates a runnable synchronization object that synchronize the system with
 	 * other user(s)
 	 * 
-	 * @param commandSocket    commandSocket for command operations
-	 * @param fileSocket       fileSocket for file operations
+	 * @param connection       connectionSocket for sync operations
 	 * @param folderOperations folderOperations for folder operations
 	 * @param isMaster         Sets system as master or follower according to value
 	 */
-	public Sync(Connection connection, FolderOperations folderOperations, boolean isMaster) {
+	public SyncProtocol(Connection connection, FolderOperations folderOperations, boolean isMaster) {
 		this.connection = connection;
 		this.fo = folderOperations;
 		this.isMaster = isMaster;
+		fileHashInfoMap = new HashMap<String, String>();
+		oldFileHashInfoMap = new HashMap<String, String>();
+		deletedFiles = new ArrayList<String>();
+		renamedFiles = new ArrayList<String>();
 	}
 
 	/**
@@ -54,15 +59,15 @@ public class Sync implements Runnable {
 			received = comSoc.receiveCommand();
 			System.out.println(received);
 			String[] command = received.split("/");
-			if (command[0].compareTo("RETRANSMIT") == 0)
+			if (command[0].equals("RETRANSMIT"))
 				sendFile(command[1]);
-			else if (command[0].compareTo("DELETE") == 0) {
+			else if (command[0].equals("DELETE")) {
 				if (command.length > 1)
 					deleteFiles(command);
-			} else if (command[0].compareTo("RENAME") == 0) {
+			} else if (command[0].equals("RENAME")) {
 				if (command.length > 1)
 					renameFiles(command);
-			} else if (command[0].compareTo("FILELIST") == 0) {
+			} else if (command[0].equals("FILELIST")) {
 				if (command.length > 1) {
 					String[] filesToGet = detectFilesToGet(received);
 					if (filesToGet != null) {
@@ -88,27 +93,23 @@ public class Sync implements Runnable {
 					sendFileList();
 				}
 			}
-		} while (received.compareTo("CONSISTENCY_CHECK_PASSED") != 0);
+		} while (!received.equals("CONSISTENCY_CHECK_PASSED"));
 		if (!isMaster)
 			close();
 		System.out.println("Sync completed");
 		connection.close();
-		System.out.println(System.nanoTime()-time);
+		System.out.println(System.nanoTime() - time);
 	}
 
 	/**
 	 * Sends the files' all informations to other user
 	 */
 	private void sendFileList() {
-		String list = "";
-		if (fileHashInfoMap.isEmpty())
-			comSoc.sendCommand("FILELIST");
-		else {
-			for (String tmp : fileHashInfoMap.values()) {
-				list += tmp + "/";
-			}
-			comSoc.sendCommand("FILELIST/" + list.substring(0, list.length() - 1));
-		}
+		String command = "FILELIST";
+		if (!fileHashInfoMap.isEmpty())
+			for (String tmp : fileHashInfoMap.values())
+				command += "/" + tmp;
+		comSoc.sendCommand(command);
 	}
 
 	/**
@@ -116,14 +117,11 @@ public class Sync implements Runnable {
 	 * command
 	 */
 	private void sendRenamedList() {
-		String list = "";
-		if (renamedFiles.isEmpty())
-			comSoc.sendCommand("RENAME");
-		else {
-			for (String tmp : renamedFiles) {
-				list += tmp + "/";
-			}
-			comSoc.sendCommand("RENAME/" + list.substring(0, list.length() - 1));
+		if (!renamedFiles.isEmpty()) {
+			String command = "RENAME";
+			for (String tmp : renamedFiles)
+				command += "/" + tmp;
+			comSoc.sendCommand(command);
 		}
 	}
 
@@ -131,14 +129,11 @@ public class Sync implements Runnable {
 	 * Sends deleted files' names to the other user with DELETE command
 	 */
 	private void sendDeletedList() {
-		String list = "";
-		if (deletedFiles.isEmpty())
-			comSoc.sendCommand("DELETE");
-		else {
-			for (String tmp : deletedFiles) {
-				list += tmp + "/";
-			}
-			comSoc.sendCommand("DELETE/" + list.substring(0, list.length() - 1));
+		if (!deletedFiles.isEmpty()) {
+			String command = "DELETE";
+			for (String tmp : deletedFiles)
+				command += "/" + tmp;
+			comSoc.sendCommand(command);
 		}
 	}
 
@@ -193,7 +188,7 @@ public class Sync implements Runnable {
 	 */
 	private void receiveFile(String fileInfo) {
 		String[] fileInfoArray = fileInfo.split(":");
-		fiSoc.receiveFile(fo.getFilePath(fileInfoArray[0]), Long.parseLong(fileInfoArray[1]));
+		fiSoc.receiveFile(fo.getFilePath(fileInfoArray[0]), Long.parseLong(fileInfoArray[1]), fo);
 	}
 
 	/**
@@ -229,7 +224,7 @@ public class Sync implements Runnable {
 			if (!fileHashInfoMap.containsKey(infoArray[2]) && !oldFileHashInfoMap.containsKey(infoArray[2]))
 				out += list[i] + "/";
 		}
-		if (out.compareTo("") != 0) {
+		if (!out.equals("")) {
 			return out.substring(0, out.length() - 1).split("/");
 		}
 		return null;
@@ -250,7 +245,7 @@ public class Sync implements Runnable {
 					if (oldFileHashInfoMap.containsKey(hash)) {
 						String name = fileHashInfoMap.get(hash).split(":")[0];
 						String oldName = oldFileHashInfoMap.get(hash).split(":")[0];
-						if (name.compareTo(oldName) != 0)
+						if (!name.equals(oldName))
 							renamedFiles.add(hash + ":" + name);
 					}
 				}
@@ -259,7 +254,7 @@ public class Sync implements Runnable {
 					String[] infoArray = tmp.split(":");
 					boolean deleted = true;
 					for (String hash : hashes) {
-						if (fileHashInfoMap.get(hash).split(":")[0].compareTo(infoArray[0]) == 0)
+						if (fileHashInfoMap.get(hash).split(":")[0].equals(infoArray[0]))
 							deleted = false;
 					}
 					if (deleted)
