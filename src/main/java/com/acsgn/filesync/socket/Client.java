@@ -3,7 +3,7 @@ package socket;
 import java.io.IOException;
 import java.net.Socket;
 
-public class Client extends Connection {
+public class Client {
 
 	private String serverAddress;
 	private int port;
@@ -16,15 +16,11 @@ public class Client extends Connection {
 	/**
 	 * Establishes a socket connection to the server that is identified by the
 	 * serverAddress
+	 * 
+	 * @throws IOException
 	 */
-	@Override
-	public void connect() {
-		try {
-			Socket socket = new Socket(serverAddress, port);
-			super.setSocket(socket);
-		} catch (IOException e) {
-			System.err.println("No server has been found on " + serverAddress);
-		}
+	public Connection connect() throws IOException {
+		return new Connection(new Socket(serverAddress, port));
 	}
 
 }

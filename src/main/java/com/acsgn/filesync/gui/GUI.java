@@ -58,6 +58,7 @@ public class GUI extends JFrame implements Listener {
 
 		informationText = new JTextArea();
 		informationText.setEditable(false);
+		informationText.setAutoscrolls(true);
 		informationText.setFont(font);
 		JScrollPane informationScrollPane = new JScrollPane(informationText);
 		informationScrollPane.setBounds(panelXMargin, panelYMargin, panelWidth - 2 * panelXMargin,
@@ -103,7 +104,6 @@ public class GUI extends JFrame implements Listener {
 				(controlPanelHeight / 2 - panelYMargin) / 2);
 		TimeTextField.setHorizontalAlignment(SwingConstants.CENTER);
 		TimeTextField.setFont(font);
-		TimeTextField.setEnabled(false);
 		TimePanel.add(TimeTextField);
 
 		controlPanel.add(TimePanel);
@@ -146,7 +146,7 @@ public class GUI extends JFrame implements Listener {
 		followerButton.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
-				TimeTextField.setEnabled(false);
+				TimeTextField.setEnabled(true);
 				IPTextField.setEnabled(true);
 			}
 		});
@@ -154,7 +154,7 @@ public class GUI extends JFrame implements Listener {
 		masterButton.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
-				TimeTextField.setEnabled(true);
+				TimeTextField.setEnabled(false);
 				IPTextField.setEnabled(false);
 			}
 		});
@@ -196,20 +196,21 @@ public class GUI extends JFrame implements Listener {
 									"Error", JOptionPane.ERROR_MESSAGE);
 							return;
 						}
-						Controller.getInstance().dispatchMessage("FOLDER/" + folder);
-						Controller.getInstance().dispatchMessage("FOLLOWER/" + IP);
-					} else {
 						String timeText = TimeTextField.getText();
 						int time;
 						try {
 							time = Integer.parseInt(timeText);
 						} catch (NumberFormatException numberException) {
-							JOptionPane.showMessageDialog(null, "Please enter a valid time interval for synchronization !",
-									"Error", JOptionPane.ERROR_MESSAGE);
+							JOptionPane.showMessageDialog(null,
+									"Please enter a valid time interval for synchronization !", "Error",
+									JOptionPane.ERROR_MESSAGE);
 							return;
 						}
 						Controller.getInstance().dispatchMessage("FOLDER/" + folder);
-						Controller.getInstance().dispatchMessage("MASTER/" + time);
+						Controller.getInstance().dispatchMessage("FOLLOWER/" + IP + "/" + time);
+					} else {
+						Controller.getInstance().dispatchMessage("FOLDER/" + folder);
+						Controller.getInstance().dispatchMessage("MASTER");
 					}
 					startStopButton.setText("Stop");
 					start = false;
@@ -243,12 +244,13 @@ public class GUI extends JFrame implements Listener {
 
 	@Override
 	public void onEvent(String message) {
-		String[] parsed = message.split("/");
+		informationText.append(message+"\n");
+		/*String[] parsed = message.split("/");
 		switch (parsed[0]) {
 		case "UPDATE":
-			informationText.insert(parsed[1], 0);
+			
 			break;
-		}
+		}*/
 
 	}
 

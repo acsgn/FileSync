@@ -4,8 +4,9 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
 
-public class Server extends Connection {
+public class Server {
 
+	private static final int timeout = 1000;
 	private ServerSocket serverSocket;
 
 	/**
@@ -15,6 +16,7 @@ public class Server extends Connection {
 	public Server(int port) {
 		try {
 			serverSocket = new ServerSocket(port);
+			serverSocket.setSoTimeout(timeout);
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
@@ -22,14 +24,20 @@ public class Server extends Connection {
 
 	/**
 	 * Establishes a socket connection with client
+	 * 
+	 * @throws IOException
 	 */
-	@Override
-	public void connect() {
+	public Connection connect() throws IOException {
+		Socket socket = serverSocket.accept();
+		return new Connection(socket);
+	}
+	
+	public void close() {
 		try {
-			Socket socket = serverSocket.accept();
-			super.setSocket(socket);
-		} catch (IOException e) {
-			System.err.println("Cannot connect with client");
+			serverSocket.close();
+			finalize();
+		} catch (Throwable e) {
+			e.printStackTrace();
 		}
 	}
 

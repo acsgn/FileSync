@@ -28,8 +28,7 @@ public class SyncProtocol implements Runnable {
 	 * @param folderOperations folderOperations for folder operations
 	 * @param isMaster         Sets system as master or follower according to value
 	 */
-	public SyncProtocol(Connection connection, FolderOperations folderOperations, boolean isMaster) {
-		this.connection = connection;
+	public SyncProtocol(FolderOperations folderOperations, boolean isMaster) {
 		this.fo = folderOperations;
 		this.isMaster = isMaster;
 		fileHashInfoMap = new HashMap<String, String>();
@@ -38,15 +37,17 @@ public class SyncProtocol implements Runnable {
 		renamedFiles = new ArrayList<String>();
 	}
 
+	public void setConnection(Connection connection) {
+		this.connection = connection;
+		comSoc = connection.createCommandSocket();
+		fiSoc = connection.createFileSocket();
+	}
+
 	/**
 	 * Starts and follows the synchronization protocol for DriveCloud
 	 */
 	public void run() {
 		long time = System.nanoTime();
-		System.out.println("Sync started");
-		connection.connect();
-		comSoc = connection.createCommandSocket();
-		fiSoc = connection.createFileSocket();
 		updateFileList();
 		detectDeletedAndRenamedFiles();
 		if (isMaster) {
@@ -59,28 +60,28 @@ public class SyncProtocol implements Runnable {
 			received = comSoc.receiveCommand();
 			System.out.println(received);
 			String[] command = received.split("/");
-			if (command[0].equals("RETRANSMIT"))
+			switch (command[0]) {
+			case "RETRANSMIT":
 				sendFile(command[1]);
-			else if (command[0].equals("DELETE")) {
-				if (command.length > 1)
-					deleteFiles(command);
-			} else if (command[0].equals("RENAME")) {
-				if (command.length > 1)
-					renameFiles(command);
-			} else if (command[0].equals("FILELIST")) {
+				break;
+			case "DELETE":
+				deleteFiles(command);
+				break;
+			case "RENAME":
+				renameFiles(command);
+				break;
+			case "FILELIST":
 				if (command.length > 1) {
 					String[] filesToGet = detectFilesToGet(received);
 					if (filesToGet != null) {
 						for (String fileInfo : filesToGet) {
 							String[] info = fileInfo.split(":");
-							sendFileRequest(info[0]);
-							receiveFile(fileInfo);
-							while (!hashControl(info[0], info[2])) {
-								System.out.println("Retransmit request for file " + info[0]);
+							do {
+								Controller.getInstance().publishEvent("Transmit request for file " + info[0] + " sent.");
 								sendFileRequest(info[0]);
 								receiveFile(fileInfo);
-							}
-							System.out.println("Consistency check for " + info[0] + " passed");
+							}while (!fo.hashCheck(info[0], info[2]));
+							Controller.getInstance().publishEvent("Consistency check for " + info[0] + " passed");
 						}
 						updateFileList();
 					}
@@ -92,11 +93,11 @@ public class SyncProtocol implements Runnable {
 					sendDeletedList();
 					sendFileList();
 				}
+				break;
 			}
-		} while (!received.equals("CONSISTENCY_CHECK_PASSED"));
+		} while (!received.equals("CLOSE"));
 		if (!isMaster)
 			close();
-		System.out.println("Sync completed");
 		connection.close();
 		System.out.println(System.nanoTime() - time);
 	}
@@ -146,7 +147,7 @@ public class SyncProtocol implements Runnable {
 		for (int i = 1; i < command.length; i++) {
 			String[] infoArray = command[i].split(":");
 			String oldName = fileHashInfoMap.get(infoArray[0]).split(":")[0];
-			System.out.println("File name changed from " + oldName + " to " + infoArray[1]);
+			Controller.getInstance().publishEvent("File name changed from " + oldName + " to " + infoArray[1]);
 			fo.renameFile(oldName, infoArray[1]);
 		}
 	}
@@ -158,7 +159,7 @@ public class SyncProtocol implements Runnable {
 	 */
 	private void deleteFiles(String[] command) {
 		for (int i = 1; i < command.length; i++) {
-			System.out.println("File named " + command[i] + " deleted.");
+			Controller.getInstance().publishEvent("File named " + command[i] + " deleted.");
 			fo.deleteFile(command[i]);
 		}
 	}
@@ -177,8 +178,10 @@ public class SyncProtocol implements Runnable {
 	 * 
 	 * @param filename The name of the file that will be sent
 	 */
-	private void sendFile(String filename) {
-		fiSoc.sendFile(fo.getFilePath(filename));
+	private void sendFile(String fileName) {
+		Controller.getInstance().publishEvent("Sending " + fileName);
+		fiSoc.sendFile(fo.getFilePath(fileName));
+		Controller.getInstance().publishEvent(fileName + " sent.");
 	}
 
 	/**
@@ -265,21 +268,10 @@ public class SyncProtocol implements Runnable {
 	}
 
 	/**
-	 * Check SHA1 value of the file as if it received without a loss
-	 * 
-	 * @param name Name of the received file
-	 * @param hash Hash of the file that was received from the other user
-	 * @return Result of hash checking
-	 */
-	private boolean hashControl(String name, String hash) {
-		return fo.hashCheck(name, hash);
-	}
-
-	/**
 	 * Closes the protocol
 	 */
 	private void close() {
-		comSoc.sendCommand("CONSISTENCY_CHECK_PASSED");
+		comSoc.sendCommand("CLOSE");
 	}
 
 }

@@ -3,11 +3,13 @@ package socket;
 import java.io.IOException;
 import java.net.Socket;
 
-public abstract class Connection {
+public class Connection {
 
 	private Socket socket;
 
-	public abstract void connect();
+	public Connection(Socket socket){
+		this.socket = socket;
+	}
 
 	public CommandSocket createCommandSocket() {
 		return new CommandSocket(socket);
@@ -15,10 +17,6 @@ public abstract class Connection {
 
 	public FileSocket createFileSocket() {
 		return new FileSocket(socket);
-	}
-
-	public void setSocket(Socket socket) {
-		this.socket = socket;
 	}
 
 	public void close() {

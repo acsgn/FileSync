@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.util.zip.Checksum;
 
 import main.FolderOperations;
 
@@ -37,12 +38,10 @@ public class FileSocket {
 			FileInputStream fis = new FileInputStream(file);
 			byte[] buffer = new byte[BUFFER_SIZE];
 			int bytesRead;
-			System.out.println("Sending " + file.getName() + " (" + file.length() + " bytes)");
 			while ((bytesRead = fis.read(buffer)) != -1) {
 				os.write(buffer, 0, bytesRead);
 			}
 			fis.close();
-			System.out.println(file.getName() + " sent.");
 		} catch (Exception e) {
 			System.err.println("Exception on sending file");
 		}
@@ -58,6 +57,7 @@ public class FileSocket {
 	public void receiveFile(String path, long fileSize, FolderOperations fo) {
 		try {
 			File file = new File(path);
+			Checksum c = fo.getChecksum();
 			file.getParentFile().mkdirs();
 			byte[] buffer = new byte[BUFFER_SIZE];
 			FileOutputStream fos = new FileOutputStream(file);
@@ -66,12 +66,11 @@ public class FileSocket {
 			while (current < fileSize) {
 				bytesRead = is.read(buffer);
 				fos.write(buffer, 0, bytesRead);
-				fo.receiveCalcXXHash(buffer, 0, bytesRead);
+				c.update(buffer, 0, bytesRead);
 				current += bytesRead;
 			}
 			fos.close();
-			fo.finishreceiveCalcXXHash(path);
-			System.out.println(file.getName() + " downloaded (" + current + " bytes read)");
+			fo.registerHash(c.getValue(), path);
 		} catch (IOException e) {
 			System.err.println("Couldn't receive file");
 		}

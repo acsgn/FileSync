@@ -2,22 +2,24 @@ package main;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 
 import java.util.AbstractMap.SimpleEntry;
 import java.util.ArrayList;
 import java.util.Hashtable;
+import java.util.zip.Checksum;
 
-import net.jpountz.xxhash.StreamingXXHash32;
+import net.jpountz.xxhash.StreamingXXHash64;
 import net.jpountz.xxhash.XXHashFactory;
 
 public class FolderOperations {
-	private File folder;
-	private Hashtable<String, SimpleEntry<Long, Integer>> calculatedHashes;
+
 	private static final int seed = 9896;
 	private static final XXHashFactory factory = XXHashFactory.fastestInstance();
-	private static final StreamingXXHash32 hashing = factory.newStreamingHash32(seed);
+	private StreamingXXHash64 hashing;
+	
+	private File folder;
+	private Hashtable<String, SimpleEntry<Long, Long>> calculatedHashes;
 
 	/**
 	 * Creates a folderOperations object to perform file operations such as getting
@@ -29,7 +31,8 @@ public class FolderOperations {
 	 */
 	public FolderOperations(String folderPath) {
 		folder = new File(folderPath);
-		calculatedHashes = new Hashtable<String, SimpleEntry<Long, Integer>>();
+		hashing = factory.newStreamingHash64(seed);
+		calculatedHashes = new Hashtable<String, SimpleEntry<Long, Long>>();
 	}
 
 	/**
@@ -61,7 +64,9 @@ public class FolderOperations {
 	 */
 	public void renameFile(String oldName, String newName) {
 		File file = new File(getFilePath(oldName));
-		file.renameTo(new File(getFilePath(newName)));
+		File newFile = new File(getFilePath(newName));
+		file.renameTo(newFile);
+		calculatedHashes.put(newFile.getAbsolutePath(), calculatedHashes.remove(file.getAbsolutePath()));
 	}
 
 	/**
@@ -72,6 +77,7 @@ public class FolderOperations {
 	public void deleteFile(String filename) {
 		File file = new File(getFilePath(filename));
 		file.delete();
+		calculatedHashes.remove(file.getAbsolutePath());
 	}
 
 	/**
@@ -92,28 +98,25 @@ public class FolderOperations {
 	 * @return Result of hash checking
 	 */
 	public boolean hashCheck(String fileName, String hash) {
-		return Integer.parseInt(hash) == calcXXHash(new File(getFilePath(fileName)));
+		return Long.parseLong(hash) == calcXXHash(new File(getFilePath(fileName)));
 	}
 
-	public void receiveCalcXXHash(byte[] buf, int off, int len) {
-		hashing.update(buf, off, len);
+	public Checksum getChecksum() {
+		return factory.newStreamingHash64(seed).asChecksum();
 	}
 
-	public void finishreceiveCalcXXHash(String path) {
-		int result = hashing.getValue();
-		hashing.reset();
+	public void registerHash(long hash,String path) {
 		File file = new File(path);
-		SimpleEntry<Long, Integer> pair = new SimpleEntry<Long, Integer>(file.lastModified(), result);
+		SimpleEntry<Long, Long> pair = new SimpleEntry<Long, Long>(file.lastModified(), hash);
 		calculatedHashes.put(file.getAbsolutePath(), pair);
 	}
 
-	private int calcXXHash(File file) {
+	private long calcXXHash(File file) {
 		if (calculatedHashes.containsKey(file.getAbsolutePath())) {
-			SimpleEntry<Long, Integer> pair = calculatedHashes.get(file.getAbsolutePath());
+			SimpleEntry<Long, Long> pair = calculatedHashes.get(file.getAbsolutePath());
 			if (pair.getKey() == file.lastModified())
 				return pair.getValue();
 		}
-		int result = 0;
 		try {
 			FileInputStream fis = new FileInputStream(file);
 			byte[] buffer = new byte[16384];
@@ -124,16 +127,15 @@ public class FolderOperations {
 					hashing.update(buffer, 0, bytesRead);
 			} while (bytesRead != -1);
 			fis.close();
-			result = hashing.getValue();
+			long result = hashing.getValue();
 			hashing.reset();
-			SimpleEntry<Long, Integer> pair = new SimpleEntry<Long, Integer>(file.lastModified(), result);
+			SimpleEntry<Long, Long> pair = new SimpleEntry<Long, Long>(file.lastModified(), result);
 			calculatedHashes.put(file.getAbsolutePath(), pair);
-		} catch (FileNotFoundException e) {
-			System.err.println("File not found wih name " + file.getName());
+			return result;
 		} catch (IOException e) {
-			System.err.println("I/O Exception");
-		}
-		return result;
+			System.err.println("File not found wih name " + file.getName());
+			return 0;
+		} 
 	}
 
 }
