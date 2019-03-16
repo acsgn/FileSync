@@ -2,8 +2,8 @@ package main;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FilenameFilter;
 import java.io.IOException;
-
 import java.util.AbstractMap.SimpleEntry;
 import java.util.ArrayList;
 import java.util.Hashtable;
@@ -17,8 +17,9 @@ public class FolderOperations {
 	private static final int seed = 9896;
 	private static final XXHashFactory factory = XXHashFactory.fastestInstance();
 	private StreamingXXHash64 hashing;
-	
+
 	private File folder;
+	private FilenameFilter fnf;
 	private Hashtable<String, SimpleEntry<Long, Long>> calculatedHashes;
 
 	/**
@@ -33,27 +34,28 @@ public class FolderOperations {
 		folder = new File(folderPath);
 		hashing = factory.newStreamingHash64(seed);
 		calculatedHashes = new Hashtable<String, SimpleEntry<Long, Long>>();
+		fnf = (File dir, String name) -> !name.endsWith(".tmp");
 	}
 
-	/**
-	 * Create a list of the files on the folder for sending and receiving purposes
-	 * 
-	 * @return ArrayList of files on the folder
-	 */
-	public ArrayList<String> fileList() {
-		return fileListHelper(folder);
+	public ArrayList<FileInfo> update() {
+		return updateHelper(folder);
 	}
 
-	private ArrayList<String> fileListHelper(File directory) {
-		ArrayList<String> list = new ArrayList<String>();
-		for (File file : directory.listFiles()) {
-			if (file.isFile())
-				list.add(file.getName() + ":" + file.length() + ":" + calcXXHash(file));
-			else
-				for (String fileString : fileListHelper(file))
-					list.add(file.getName() + "\\" + fileString);
+	private ArrayList<FileInfo> updateHelper(File directory) {
+		ArrayList<FileInfo> tmp = new ArrayList<>();
+		for (File file : directory.listFiles(fnf)) {
+			if (file.isFile()) {
+				try {
+					long hash = calcXXHash(file);
+					String name = file.getAbsolutePath().substring(folder.getAbsolutePath().length() + 1);
+					tmp.add(new FileInfo(name, file.length(), hash));
+				} catch (IOException e) {
+					continue;
+				}
+			} else
+				tmp.addAll(updateHelper(file));
 		}
-		return list;
+		return tmp;
 	}
 
 	/**
@@ -97,45 +99,44 @@ public class FolderOperations {
 	 * @param hash     Hash of the file that was sent from other user
 	 * @return Result of hash checking
 	 */
-	public boolean hashCheck(String fileName, String hash) {
-		return Long.parseLong(hash) == calcXXHash(new File(getFilePath(fileName)));
+	public boolean hashCheck(String fileName, long hash) {
+		try {
+			return hash == calcXXHash(new File(getFilePath(fileName)));
+		} catch (IOException e) {
+			return false;
+		}
 	}
 
 	public Checksum getChecksum() {
 		return factory.newStreamingHash64(seed).asChecksum();
 	}
 
-	public void registerHash(long hash,String path) {
+	public void registerHash(long hash, String path) {
 		File file = new File(path);
 		SimpleEntry<Long, Long> pair = new SimpleEntry<Long, Long>(file.lastModified(), hash);
 		calculatedHashes.put(file.getAbsolutePath(), pair);
 	}
 
-	private long calcXXHash(File file) {
+	private long calcXXHash(File file) throws IOException {
 		if (calculatedHashes.containsKey(file.getAbsolutePath())) {
 			SimpleEntry<Long, Long> pair = calculatedHashes.get(file.getAbsolutePath());
 			if (pair.getKey() == file.lastModified())
 				return pair.getValue();
 		}
-		try {
-			FileInputStream fis = new FileInputStream(file);
-			byte[] buffer = new byte[16384];
-			int bytesRead;
-			do {
-				bytesRead = fis.read(buffer);
-				if (bytesRead > 0)
-					hashing.update(buffer, 0, bytesRead);
-			} while (bytesRead != -1);
-			fis.close();
-			long result = hashing.getValue();
-			hashing.reset();
-			SimpleEntry<Long, Long> pair = new SimpleEntry<Long, Long>(file.lastModified(), result);
-			calculatedHashes.put(file.getAbsolutePath(), pair);
-			return result;
-		} catch (IOException e) {
-			System.err.println("File not found wih name " + file.getName());
-			return 0;
-		} 
+		FileInputStream fis = new FileInputStream(file);
+		byte[] buffer = new byte[16384];
+		int bytesRead;
+		do {
+			bytesRead = fis.read(buffer);
+			if (bytesRead > 0)
+				hashing.update(buffer, 0, bytesRead);
+		} while (bytesRead != -1);
+		fis.close();
+		long result = hashing.getValue();
+		hashing.reset();
+		SimpleEntry<Long, Long> pair = new SimpleEntry<Long, Long>(file.lastModified(), result);
+		calculatedHashes.put(file.getAbsolutePath(), pair);
+		return result;
 	}
 
 }

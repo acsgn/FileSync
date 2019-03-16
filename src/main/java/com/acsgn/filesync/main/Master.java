@@ -8,20 +8,19 @@ import java.net.SocketTimeoutException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import socket.Connection;
 import socket.Server;
 
 public class Master implements Runnable, Closeable {
 
 	private volatile boolean close = false;
-
 	private ExecutorService cTP;
-
 	private Server server;
-	private SyncProtocol sync;
+	private FolderOperations fo;
 
 	public Master(FolderOperations fo, int port) {
 		server = new Server(port);
-		sync = new SyncProtocol(fo, true);
+		this.fo = fo;
 		cTP = Executors.newCachedThreadPool();
 	}
 
@@ -29,7 +28,8 @@ public class Master implements Runnable, Closeable {
 	public void run() {
 		while (true) {
 			try {
-				sync.setConnection(server.connect());
+				Connection c = server.connect();
+				SyncProtocol sync = new SyncProtocol(c ,fo, true);
 				Controller.getInstance().publishEvent("Connected to a follower.");
 				cTP.execute(sync);
 			} catch (SocketTimeoutException e) {

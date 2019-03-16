@@ -1,7 +1,11 @@
 package main;
 
+import java.lang.reflect.Type;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Hashtable;
+
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 
 import socket.CommandSocket;
 import socket.Connection;
@@ -9,16 +13,22 @@ import socket.FileSocket;
 
 public class SyncProtocol implements Runnable {
 
+	private static final Type hT = new TypeToken<Hashtable<Long, FileInfo>>() {
+	}.getType();
+	private static final Type aL = new TypeToken<ArrayList<FileInfo>>() {
+	}.getType();
+
 	private FolderOperations fo;
 	private Connection connection;
 	private CommandSocket comSoc;
 	private FileSocket fiSoc;
 	private boolean isMaster;
+	private Gson gson;
 
-	private HashMap<String, String> fileHashInfoMap;
-	private HashMap<String, String> oldFileHashInfoMap;
-	private ArrayList<String> deletedFiles;
-	private ArrayList<String> renamedFiles;
+	private Hashtable<Long, FileInfo> fileHashInfoTable;
+	private Hashtable<Long, FileInfo> oldFileHashInfoTable;
+	private ArrayList<FileInfo> deletedFiles;
+	private ArrayList<FileInfo> renamedFiles;
 
 	/**
 	 * Creates a runnable synchronization object that synchronize the system with
@@ -28,19 +38,17 @@ public class SyncProtocol implements Runnable {
 	 * @param folderOperations folderOperations for folder operations
 	 * @param isMaster         Sets system as master or follower according to value
 	 */
-	public SyncProtocol(FolderOperations folderOperations, boolean isMaster) {
+	public SyncProtocol(Connection c, FolderOperations folderOperations, boolean isMaster) {
 		this.fo = folderOperations;
 		this.isMaster = isMaster;
-		fileHashInfoMap = new HashMap<String, String>();
-		oldFileHashInfoMap = new HashMap<String, String>();
-		deletedFiles = new ArrayList<String>();
-		renamedFiles = new ArrayList<String>();
-	}
-
-	public void setConnection(Connection connection) {
-		this.connection = connection;
+		this.connection = c;
 		comSoc = connection.createCommandSocket();
 		fiSoc = connection.createFileSocket();
+		fileHashInfoTable = new Hashtable<Long, FileInfo>();
+		oldFileHashInfoTable = new Hashtable<Long, FileInfo>();
+		deletedFiles = new ArrayList<FileInfo>();
+		renamedFiles = new ArrayList<FileInfo>();
+		gson = new Gson();
 	}
 
 	/**
@@ -59,33 +67,14 @@ public class SyncProtocol implements Runnable {
 		do {
 			received = comSoc.receiveCommand();
 			System.out.println(received);
-			String[] command = received.split("/");
-			switch (command[0]) {
-			case "RETRANSMIT":
-				sendFile(command[1]);
-				break;
-			case "DELETE":
-				deleteFiles(command);
-				break;
-			case "RENAME":
-				renameFiles(command);
-				break;
-			case "FILELIST":
-				if (command.length > 1) {
-					String[] filesToGet = detectFilesToGet(received);
-					if (filesToGet != null) {
-						for (String fileInfo : filesToGet) {
-							String[] info = fileInfo.split(":");
-							do {
-								Controller.getInstance().publishEvent("Transmit request for file " + info[0] + " sent.");
-								sendFileRequest(info[0]);
-								receiveFile(fileInfo);
-							}while (!fo.hashCheck(info[0], info[2]));
-							Controller.getInstance().publishEvent("Consistency check for " + info[0] + " passed");
-						}
-						updateFileList();
-					}
-				}
+			if (received.startsWith("TRANSMIT"))
+				sendFile(received.replaceFirst("TRANSMIT", ""));
+			else if (received.startsWith("DELETE"))
+				deleteFiles(received.replaceFirst("DELETE", ""));
+			else if (received.startsWith("RENAME"))
+				renameFiles(received.replaceFirst("DELETE", ""));
+			else if (received.startsWith("FILELIST")) {
+				updateFolder(received);
 				if (isMaster)
 					close();
 				else {
@@ -93,7 +82,6 @@ public class SyncProtocol implements Runnable {
 					sendDeletedList();
 					sendFileList();
 				}
-				break;
 			}
 		} while (!received.equals("CLOSE"));
 		if (!isMaster)
@@ -102,14 +90,33 @@ public class SyncProtocol implements Runnable {
 		System.out.println(System.nanoTime() - time);
 	}
 
+	private void updateFolder(String received) {
+		String json = received.replaceFirst("FILELIST", "");
+		if (json.length() > 0) {
+			ArrayList<FileInfo> filesToGet = detectFilesToGet(json);
+			if (filesToGet != null) {
+				for (FileInfo fI: filesToGet) {
+					do {
+						Controller.getInstance()
+								.publishEvent("Transmit request for file " + fI.getName() + " sent.");
+						sendFileRequest(fI.getName());
+						receiveFile(fI);
+					} while (!fo.hashCheck(fI.getName(), fI.getHash()));
+					Controller.getInstance().publishEvent("Consistency check for " + fI.getName() + " passed");
+				}
+				updateFileList();
+			}
+		}
+	}
+
 	/**
 	 * Sends the files' all informations to other user
 	 */
 	private void sendFileList() {
 		String command = "FILELIST";
-		if (!fileHashInfoMap.isEmpty())
-			for (String tmp : fileHashInfoMap.values())
-				command += "/" + tmp;
+		if (!fileHashInfoTable.isEmpty()) {
+			command += gson.toJson(fileHashInfoTable, hT);
+		}
 		comSoc.sendCommand(command);
 	}
 
@@ -120,8 +127,7 @@ public class SyncProtocol implements Runnable {
 	private void sendRenamedList() {
 		if (!renamedFiles.isEmpty()) {
 			String command = "RENAME";
-			for (String tmp : renamedFiles)
-				command += "/" + tmp;
+			command += gson.toJson(renamedFiles, aL);
 			comSoc.sendCommand(command);
 		}
 	}
@@ -132,8 +138,7 @@ public class SyncProtocol implements Runnable {
 	private void sendDeletedList() {
 		if (!deletedFiles.isEmpty()) {
 			String command = "DELETE";
-			for (String tmp : deletedFiles)
-				command += "/" + tmp;
+			command += gson.toJson(deletedFiles, aL);
 			comSoc.sendCommand(command);
 		}
 	}
@@ -143,12 +148,12 @@ public class SyncProtocol implements Runnable {
 	 * 
 	 * @param command RENAME command of the other user
 	 */
-	private void renameFiles(String[] command) {
-		for (int i = 1; i < command.length; i++) {
-			String[] infoArray = command[i].split(":");
-			String oldName = fileHashInfoMap.get(infoArray[0]).split(":")[0];
-			Controller.getInstance().publishEvent("File name changed from " + oldName + " to " + infoArray[1]);
-			fo.renameFile(oldName, infoArray[1]);
+	private void renameFiles(String json) {
+		ArrayList<FileInfo> rF = gson.fromJson(json, aL);
+		for (FileInfo fI : rF) {
+			String oldName = fileHashInfoTable.get(fI.getHash()).getName();
+			Controller.getInstance().publishEvent("File name changed from " + oldName + " to " + fI.getName());
+			fo.renameFile(oldName, fI.getName());
 		}
 	}
 
@@ -157,10 +162,11 @@ public class SyncProtocol implements Runnable {
 	 * 
 	 * @param command DELETE command of the other user
 	 */
-	private void deleteFiles(String[] command) {
-		for (int i = 1; i < command.length; i++) {
-			Controller.getInstance().publishEvent("File named " + command[i] + " deleted.");
-			fo.deleteFile(command[i]);
+	private void deleteFiles(String json) {
+		ArrayList<FileInfo> dF = gson.fromJson(json, aL);
+		for (FileInfo fI : dF) {
+			Controller.getInstance().publishEvent("File named " + fI.getName() + " deleted.");
+			fo.deleteFile(fI.getName());
 		}
 	}
 
@@ -170,7 +176,7 @@ public class SyncProtocol implements Runnable {
 	 * @param fileName The name of the requested file
 	 */
 	private void sendFileRequest(String fileName) {
-		comSoc.sendCommand("RETRANSMIT/" + fileName);
+		comSoc.sendCommand("TRANSMIT" + fileName);
 	}
 
 	/**
@@ -189,25 +195,23 @@ public class SyncProtocol implements Runnable {
 	 * 
 	 * @param fileInfo The information of the file
 	 */
-	private void receiveFile(String fileInfo) {
-		String[] fileInfoArray = fileInfo.split(":");
-		fiSoc.receiveFile(fo.getFilePath(fileInfoArray[0]), Long.parseLong(fileInfoArray[1]), fo);
+	private void receiveFile(FileInfo fI) {
+		fiSoc.receiveFile(fo.getFilePath(fI.getName()), fI.getLength(), fo);
 	}
 
 	/**
 	 * Updates the list of files in the system for changes on folder
 	 */
 	private void updateFileList() {
-		ArrayList<String> fileInfoList = fo.fileList();
-		oldFileHashInfoMap.clear();
+		ArrayList<FileInfo> fileInfoList = fo.update();
+		oldFileHashInfoTable.clear();
 		deletedFiles.clear();
 		renamedFiles.clear();
-		oldFileHashInfoMap.putAll(fileHashInfoMap);
-		fileHashInfoMap.clear();
+		oldFileHashInfoTable.putAll(fileHashInfoTable);
+		fileHashInfoTable.clear();
 		if (!fileInfoList.isEmpty()) {
-			for (String tmp : fileInfoList) {
-				String[] infoArray = tmp.split(":");
-				fileHashInfoMap.put(infoArray[2], tmp);
+			for (FileInfo tmp : fileInfoList) {
+				fileHashInfoTable.put(tmp.getHash(), tmp);
 			}
 		}
 	}
@@ -219,18 +223,14 @@ public class SyncProtocol implements Runnable {
 	 * @param command FILELIST command of the other user
 	 * @return Files that will be requested from the other user
 	 */
-	private String[] detectFilesToGet(String command) {
-		String out = "";
-		String[] list = command.split("/");
-		for (int i = 1; i < list.length; i++) {
-			String[] infoArray = list[i].split(":");
-			if (!fileHashInfoMap.containsKey(infoArray[2]) && !oldFileHashInfoMap.containsKey(infoArray[2]))
-				out += list[i] + "/";
+	private ArrayList<FileInfo> detectFilesToGet(String json) {
+		ArrayList<FileInfo> tmp = new ArrayList<>();
+		Hashtable<Long, FileInfo> list = gson.fromJson(json, hT);
+		for (FileInfo fI: list.values()) {
+			if (!fileHashInfoTable.containsKey(fI.getHash()) && !oldFileHashInfoTable.containsKey(fI.getHash()))
+				tmp.add(fI);
 		}
-		if (!out.equals("")) {
-			return out.substring(0, out.length() - 1).split("/");
-		}
-		return null;
+		return tmp;
 	}
 
 	/**
@@ -238,30 +238,29 @@ public class SyncProtocol implements Runnable {
 	 * informations in maps
 	 */
 	private void detectDeletedAndRenamedFiles() {
-		if (!oldFileHashInfoMap.isEmpty()) {
-			if (fileHashInfoMap.isEmpty())
-				oldFileHashInfoMap.values().forEach(str -> deletedFiles.add(str.split(":")[0]));
+		if (!oldFileHashInfoTable.isEmpty()) {
+			if (fileHashInfoTable.isEmpty())
+				oldFileHashInfoTable.values().forEach(fI -> deletedFiles.add(fI));
 			else {
-				ArrayList<String> hashes = new ArrayList<String>();
-				fileHashInfoMap.keySet().forEach(str -> hashes.add(str));
-				for (String hash : hashes) {
-					if (oldFileHashInfoMap.containsKey(hash)) {
-						String name = fileHashInfoMap.get(hash).split(":")[0];
-						String oldName = oldFileHashInfoMap.get(hash).split(":")[0];
+				ArrayList<Long> hashes = new ArrayList<Long>();
+				fileHashInfoTable.keySet().forEach(str -> hashes.add(str));
+				for (long hash : hashes) {
+					if (oldFileHashInfoTable.containsKey(hash)) {
+						String name = fileHashInfoTable.get(hash).getName();
+						String oldName = oldFileHashInfoTable.get(hash).getName();
 						if (!name.equals(oldName))
-							renamedFiles.add(hash + ":" + name);
+							renamedFiles.add(fileHashInfoTable.get(hash));
 					}
 				}
-				hashes.forEach(hash -> oldFileHashInfoMap.remove(hash));
-				for (String tmp : oldFileHashInfoMap.values()) {
-					String[] infoArray = tmp.split(":");
+				hashes.forEach(hash -> oldFileHashInfoTable.remove(hash));
+				for (FileInfo tmp : oldFileHashInfoTable.values()) {
 					boolean deleted = true;
-					for (String hash : hashes) {
-						if (fileHashInfoMap.get(hash).split(":")[0].equals(infoArray[0]))
+					for (long hash : hashes) {
+						if (fileHashInfoTable.get(hash).getName().equals(tmp.getName()))
 							deleted = false;
 					}
 					if (deleted)
-						deletedFiles.add(infoArray[0]);
+						deletedFiles.add(tmp);
 				}
 			}
 		}

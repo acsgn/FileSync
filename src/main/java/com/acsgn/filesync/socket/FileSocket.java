@@ -56,9 +56,9 @@ public class FileSocket {
 	 */
 	public void receiveFile(String path, long fileSize, FolderOperations fo) {
 		try {
-			File file = new File(path);
-			Checksum c = fo.getChecksum();
+			File file = new File(path+".tmp");
 			file.getParentFile().mkdirs();
+			Checksum c = fo.getChecksum();
 			byte[] buffer = new byte[BUFFER_SIZE];
 			FileOutputStream fos = new FileOutputStream(file);
 			int bytesRead;
@@ -70,6 +70,7 @@ public class FileSocket {
 				current += bytesRead;
 			}
 			fos.close();
+			file.renameTo(new File(path));
 			fo.registerHash(c.getValue(), path);
 		} catch (IOException e) {
 			System.err.println("Couldn't receive file");
